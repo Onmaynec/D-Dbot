@@ -8,6 +8,7 @@ htmlcov/
 data/*.sqlite3
 data/*.sqlite3-*
 data/button_ui_images/
+data/button_ui_images_v4/
 .idea/
 .vscode/
 .DS_Store
