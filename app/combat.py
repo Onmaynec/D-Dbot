@@ -27,12 +27,28 @@ def start_combat(party_level: int, rng: random.Random | None = None) -> dict[str
         template["max_hp"] = template["hp"] + scale * 2
         template["hp"] = template["max_hp"]
         template["alive"] = True
+        template["attack_bonus"] = 2 + template["min_level"] // 2 + scale // 3
+        template["damage_die"] = 8 if template["min_level"] >= 4 else 6
         enemies.append(template)
     return {"round": 1, "party_level": level, "enemies": enemies}
 
 
 def living_enemies(state: dict[str, Any]) -> list[dict[str, Any]]:
     return [enemy for enemy in state.get("enemies", []) if enemy.get("alive", True) and enemy.get("hp", 0) > 0]
+
+
+def roll_initiative(
+    state: dict[str, Any], dexterity_modifier: int, rng: random.Random | None = None
+) -> list[dict[str, Any]]:
+    roller = rng or random
+    state["player_initiative"] = roller.randint(1, 20) + dexterity_modifier
+    order = [{"kind": "player", "name": "Герои", "initiative": state["player_initiative"]}]
+    for enemy in living_enemies(state):
+        enemy["initiative"] = roller.randint(1, 20) + max(0, int(enemy["min_level"]) // 2)
+        order.append({"kind": "enemy", "name": enemy["name"], "initiative": enemy["initiative"]})
+    order.sort(key=lambda item: int(item["initiative"]), reverse=True)
+    state["initiative_order"] = order
+    return order
 
 
 def resolve_target(state: dict[str, Any], target_text: str) -> dict[str, Any] | None:
@@ -71,7 +87,6 @@ def attack(
             target["alive"] = False
             defeated = True
 
-    state["round"] = state.get("round", 1) + 1
     return {
         "target": target,
         "natural": natural,
@@ -109,7 +124,6 @@ def cast_spell(
         if target["hp"] == 0:
             target["alive"] = False
             defeated = True
-    state["round"] = state.get("round", 1) + 1
     return {
         "target": target,
         "natural": natural,
@@ -120,3 +134,35 @@ def cast_spell(
         "defeated": defeated,
         "xp": target["xp"] if defeated else 0,
     }
+
+
+def enemy_phase(
+    state: dict[str, Any], current_hp: int, player_ac: int, rng: random.Random | None = None
+) -> dict[str, Any]:
+    roller = rng or random
+    hp = max(0, int(current_hp))
+    events: list[dict[str, Any]] = []
+    for enemy in living_enemies(state):
+        if hp <= 0:
+            break
+        natural = roller.randint(1, 20)
+        total = natural + int(enemy.get("attack_bonus", 2))
+        critical = natural == 20
+        hit = critical or (natural != 1 and total >= player_ac)
+        damage = 0
+        if hit:
+            dice_count = 2 if critical else 1
+            damage = sum(roller.randint(1, int(enemy.get("damage_die", 6))) for _ in range(dice_count))
+            damage += max(0, int(enemy.get("attack_bonus", 2)) - 2)
+            damage = max(1, damage)
+            hp = max(0, hp - damage)
+        events.append({
+            "enemy": enemy["name"],
+            "natural": natural,
+            "total": total,
+            "critical": critical,
+            "hit": hit,
+            "damage": damage,
+        })
+    state["round"] = int(state.get("round", 1)) + 1
+    return {"events": events, "current_hp": hp, "defeated": hp <= 0}
