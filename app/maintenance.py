@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -51,7 +51,7 @@ def _create_database_backup(source: Path, backup_dir: Path, keep: int) -> Path:
         raise FileNotFoundError(source)
 
     backup_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     destination = backup_dir / f"{source.stem}-{timestamp}.sqlite3"
 
     try:
