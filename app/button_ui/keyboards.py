@@ -10,6 +10,7 @@ BTN_CHARACTER = "🧙 Герой"
 BTN_INVENTORY = "🎒 Инвентарь"
 BTN_QUEST = "📜 Квесты"
 BTN_TRAVEL = "🗺️ Путешествие"
+BTN_DUNGEON = "🏰 Подземелье"
 BTN_NPC = "🎭 NPC"
 BTN_ENCOUNTER = "🌍 Встреча"
 BTN_LOOT = "💎 Добыча"
@@ -20,6 +21,7 @@ BTN_REST = "🛌 Отдых"
 BTN_SHOP = "🏪 Лавка"
 BTN_REPUTATION = "🏛️ Репутация"
 BTN_ACHIEVEMENTS = "🏆 Достижения"
+BTN_SETTINGS = "🎛️ Настройки"
 BTN_JOURNAL = "📖 Журнал"
 BTN_MORE = "⚙️ Ещё"
 BTN_CANCEL = "❌ Отмена"
@@ -29,6 +31,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
         [KeyboardButton(text=BTN_CAMPAIGN), KeyboardButton(text=BTN_PARTY)],
         [KeyboardButton(text=BTN_CHARACTER), KeyboardButton(text=BTN_INVENTORY)],
         [KeyboardButton(text=BTN_QUEST), KeyboardButton(text=BTN_TRAVEL)],
+        [KeyboardButton(text=BTN_DUNGEON), KeyboardButton(text=BTN_SETTINGS)],
         [KeyboardButton(text=BTN_NPC), KeyboardButton(text=BTN_ENCOUNTER)],
         [KeyboardButton(text=BTN_LOOT), KeyboardButton(text=BTN_SHOP)],
         [KeyboardButton(text=BTN_COMBAT), KeyboardButton(text=BTN_MAGIC)],
@@ -81,6 +84,36 @@ REPUTATION_MENU = InlineKeyboardMarkup(inline_keyboard=[
 
 ACHIEVEMENTS_MENU = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🔄 Обновить достижения", callback_data="achievements:show")],
+])
+
+DUNGEON_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🕯️ Начать экспедицию", callback_data="dungeon:start")],
+    [InlineKeyboardButton(text="🥾 Продолжить путь", callback_data="dungeon:explore")],
+    [InlineKeyboardButton(text="📍 Состояние экспедиции", callback_data="dungeon:status")],
+    [InlineKeyboardButton(text="🏆 Подземные достижения", callback_data="dungeon:achievements")],
+    [InlineKeyboardButton(text="🚪 Отступить", callback_data="dungeon:retreat")],
+])
+
+DUNGEON_ROOM_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🥾 Исследовать следующую комнату", callback_data="dungeon:explore")],
+    [InlineKeyboardButton(text="📍 Состояние экспедиции", callback_data="dungeon:status")],
+    [InlineKeyboardButton(text="🚪 Отступить с добычей", callback_data="dungeon:retreat")],
+])
+
+DUNGEON_BOSS_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🗡️ Атаковать босса", callback_data="dungeon:boss_attack")],
+    [InlineKeyboardButton(text="📍 Оценить противника", callback_data="dungeon:status")],
+    [InlineKeyboardButton(text="🚪 Бежать", callback_data="dungeon:retreat")],
+])
+
+SETTINGS_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [
+        InlineKeyboardButton(text="🌿 Легко", callback_data="settings:difficulty:easy"),
+        InlineKeyboardButton(text="⚔️ Обычно", callback_data="settings:difficulty:normal"),
+        InlineKeyboardButton(text="💀 Хардкор", callback_data="settings:difficulty:hard"),
+    ],
+    [InlineKeyboardButton(text="🖼️ Фото высокого качества", callback_data="settings:image:photo")],
+    [InlineKeyboardButton(text="📎 Оригинал без сжатия", callback_data="settings:image:document")],
 ])
 
 DICE_MENU = InlineKeyboardMarkup(inline_keyboard=[
