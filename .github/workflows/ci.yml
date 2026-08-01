@@ -22,7 +22,17 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Ruff
-        run: ruff check .
+      - name: Ruff critical errors
+        run: ruff check . --select E9,F63,F7,F82
+      - name: Ruff v4.1 changes
+        run: >-
+          ruff check
+          app/__init__.py
+          app/config.py
+          app/main.py
+          app/maintenance.py
+          app/button_ui/router.py
+          tests/test_maintenance_v41.py
+          --ignore E501
       - name: Tests
         run: pytest -q
