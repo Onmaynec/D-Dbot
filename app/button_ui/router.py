@@ -8,6 +8,7 @@ from aiogram.types import Message
 from app.database import Database
 from app.session import SessionStore
 from app.button_ui.adventure import build_adventure_router
+from app.button_ui.campaign_progress import build_campaign_progress_router
 from app.button_ui.combat import build_combat_router
 from app.button_ui.journal import build_journal_router
 from app.button_ui.keyboards import MAIN_MENU
@@ -25,8 +26,8 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             message,
             "start",
             "🐉 <b>Врата подземелья открыты.</b>\n\n"
-            "Теперь всё приключение управляется кнопками. Собирай партию, покупай снаряжение, "
-            "веди инвентарь и сражайся в полноценных раундах с ответными ходами врагов.",
+            "Кампания стала живой: бери долгосрочные контракты, открывай локации, "
+            "зарабатывай репутацию фракций и собирай достижения. Всё управление — кнопками.",
             MAIN_MENU,
         )
 
@@ -36,12 +37,16 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             message,
             "start",
             "❓ <b>Как играть</b>\n\n"
-            "Начни кампанию, создай основного героя, а затем предложи другим игрокам вступить "
-            "в партию. Добыча автоматически попадает в общий инвентарь, а золото можно тратить в лавке.",
+            "Начни кампанию и создай героя. Бери контракты в разделе «📜 Квесты», "
+            "выполняй этапы или продвигай их путешествиями. За завершение выдаются золото, "
+            "репутация и достижения. Партия, магазин и инициативные бои продолжают работать.",
             MAIN_MENU,
         )
 
     router.include_router(build_progression_router(database, store))
+    # Этот роутер стоит перед старым приключенческим модулем и заменяет прежнюю
+    # одноразовую генерацию квестов полноценной системой активных контрактов.
+    router.include_router(build_campaign_progress_router(database, store))
     router.include_router(build_adventure_router(database, store))
     router.include_router(build_combat_router(database, store))
     router.include_router(build_journal_router(database, store))
