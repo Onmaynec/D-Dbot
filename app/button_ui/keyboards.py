@@ -8,7 +8,8 @@ BTN_CAMPAIGN = "🏕️ Кампания"
 BTN_PARTY = "👥 Партия"
 BTN_CHARACTER = "🧙 Герой"
 BTN_INVENTORY = "🎒 Инвентарь"
-BTN_QUEST = "📜 Квест"
+BTN_QUEST = "📜 Квесты"
+BTN_TRAVEL = "🗺️ Путешествие"
 BTN_NPC = "🎭 NPC"
 BTN_ENCOUNTER = "🌍 Встреча"
 BTN_LOOT = "💎 Добыча"
@@ -17,6 +18,8 @@ BTN_DICE = "🎲 Кубы"
 BTN_MAGIC = "✨ Магия"
 BTN_REST = "🛌 Отдых"
 BTN_SHOP = "🏪 Лавка"
+BTN_REPUTATION = "🏛️ Репутация"
+BTN_ACHIEVEMENTS = "🏆 Достижения"
 BTN_JOURNAL = "📖 Журнал"
 BTN_MORE = "⚙️ Ещё"
 BTN_CANCEL = "❌ Отмена"
@@ -25,12 +28,13 @@ MAIN_MENU = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text=BTN_CAMPAIGN), KeyboardButton(text=BTN_PARTY)],
         [KeyboardButton(text=BTN_CHARACTER), KeyboardButton(text=BTN_INVENTORY)],
-        [KeyboardButton(text=BTN_QUEST), KeyboardButton(text=BTN_NPC)],
-        [KeyboardButton(text=BTN_ENCOUNTER), KeyboardButton(text=BTN_LOOT)],
+        [KeyboardButton(text=BTN_QUEST), KeyboardButton(text=BTN_TRAVEL)],
+        [KeyboardButton(text=BTN_NPC), KeyboardButton(text=BTN_ENCOUNTER)],
+        [KeyboardButton(text=BTN_LOOT), KeyboardButton(text=BTN_SHOP)],
         [KeyboardButton(text=BTN_COMBAT), KeyboardButton(text=BTN_MAGIC)],
         [KeyboardButton(text=BTN_DICE), KeyboardButton(text=BTN_REST)],
-        [KeyboardButton(text=BTN_SHOP), KeyboardButton(text=BTN_JOURNAL)],
-        [KeyboardButton(text=BTN_MORE)],
+        [KeyboardButton(text=BTN_REPUTATION), KeyboardButton(text=BTN_ACHIEVEMENTS)],
+        [KeyboardButton(text=BTN_JOURNAL), KeyboardButton(text=BTN_MORE)],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -59,6 +63,24 @@ PARTY_MENU = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="➕ Вступить в партию", callback_data="party:join")],
     [InlineKeyboardButton(text="👥 Показать состав", callback_data="party:show")],
     [InlineKeyboardButton(text="🚪 Покинуть партию", callback_data="party:leave")],
+])
+
+QUEST_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="✨ Получить новый контракт", callback_data="quest:new")],
+    [InlineKeyboardButton(text="📚 Активные квесты", callback_data="quest:list")],
+])
+
+TRAVEL_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🥾 Отправиться в путь", callback_data="travel:go")],
+    [InlineKeyboardButton(text="📍 Текущее местоположение", callback_data="travel:where")],
+])
+
+REPUTATION_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🔄 Обновить репутацию", callback_data="reputation:show")],
+])
+
+ACHIEVEMENTS_MENU = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🔄 Обновить достижения", callback_data="achievements:show")],
 ])
 
 DICE_MENU = InlineKeyboardMarkup(inline_keyboard=[
@@ -94,6 +116,36 @@ INVENTORY_MENU = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="🔄 Обновить инвентарь", callback_data="inventory:show")],
     [InlineKeyboardButton(text="🏪 Открыть лавку", callback_data="shop:show")],
 ])
+
+
+def quest_list_keyboard(quests: list[dict[str, Any]]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(
+            text=f"📜 {quest['title']} ({quest['progress']}/{quest['target']})",
+            callback_data=f"quest:view:{quest['id']}",
+        )]
+        for quest in quests
+    ]
+    rows.append([InlineKeyboardButton(text="✨ Новый контракт", callback_data="quest:new")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def quest_detail_keyboard(quest: dict[str, Any]) -> InlineKeyboardMarkup:
+    quest_id = int(quest["id"])
+    rows: list[list[InlineKeyboardButton]] = []
+    if int(quest["progress"]) < int(quest["target"]):
+        rows.append([InlineKeyboardButton(
+            text="🎯 Выполнить этап", callback_data=f"quest:advance:{quest_id}"
+        )])
+    else:
+        rows.append([InlineKeyboardButton(
+            text="✅ Завершить и получить награду", callback_data=f"quest:complete:{quest_id}"
+        )])
+    rows.extend([
+        [InlineKeyboardButton(text="📚 К списку квестов", callback_data="quest:list")],
+        [InlineKeyboardButton(text="🗑️ Отказаться", callback_data=f"quest:abandon:{quest_id}")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def attack_targets_keyboard(state: dict[str, Any]) -> InlineKeyboardMarkup:
