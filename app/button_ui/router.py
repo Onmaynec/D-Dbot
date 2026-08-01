@@ -5,9 +5,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from app.database import Database
-from app.dungeon_store import DungeonStore
-from app.session import SessionStore
+from app import __version__
 from app.button_ui.adventure import build_adventure_router
 from app.button_ui.campaign_progress import build_campaign_progress_router
 from app.button_ui.combat import build_combat_router
@@ -16,6 +14,10 @@ from app.button_ui.journal import build_journal_router
 from app.button_ui.keyboards import MAIN_MENU
 from app.button_ui.media import configure_image_mode_resolver, send_scene
 from app.button_ui.progression import build_progression_router
+from app.database import Database
+from app.dungeon_store import DungeonStore
+from app.maintenance import check_database, format_bytes
+from app.session import SessionStore
 
 
 def build_button_router(database: Database, store: SessionStore) -> Router:
@@ -43,8 +45,20 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             "❓ <b>Как играть</b>\n\n"
             "Начни кампанию и создай героя. В разделе «🏰 Подземелье» запускаются постоянные экспедиции: "
             "исследуй комнаты, сохраняй добычу, отступай или сражайся с финальным боссом. "
-            "В «🎛️ Настройки» можно выбрать сложность и режим изображений без сжатия.",
+            "В «🎛️ Настройки» можно выбрать сложность и режим изображений без сжатия.\n\n"
+            "Команда /status показывает версию бота и проверяет целостность SQLite.",
             MAIN_MENU,
+        )
+
+    @router.message(Command("status"))
+    async def status_handler(message: Message) -> None:
+        health = await check_database(database.path)
+        icon = "✅" if health.ok else "⚠️"
+        await message.answer(
+            f"🩺 <b>D&D Telegram Master v{__version__}</b>\n\n"
+            f"{icon} SQLite: {health.message}\n"
+            f"💾 Размер данных: {format_bytes(health.size_bytes)}\n"
+            "🛡️ Резервная копия создаётся при каждом запуске бота."
         )
 
     router.include_router(build_dungeon_router(database, store, dungeon_store))
