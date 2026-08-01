@@ -42,7 +42,7 @@ class Settings:
     backup_on_start: bool = True
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         load_dotenv()
         token = os.getenv("BOT_TOKEN", "").strip()
         if not token:
