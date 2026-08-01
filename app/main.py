@@ -8,27 +8,15 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
+from app.button_ui import build_button_router
 from app.config import Settings
 from app.database import Database
 from app.handlers import build_router
 from app.session import SessionStore
 
 COMMANDS = [
-    BotCommand(command="campaign", description="Начать новую кампанию"),
-    BotCommand(command="character", description="Создать случайного героя"),
-    BotCommand(command="quest", description="Получить случайный квест"),
-    BotCommand(command="roll", description="Бросить кубик, например /roll d20"),
-    BotCommand(command="npc", description="Создать NPC"),
-    BotCommand(command="encounter", description="Случайная встреча"),
-    BotCommand(command="loot", description="Сгенерировать добычу"),
-    BotCommand(command="combat", description="Начать бой"),
-    BotCommand(command="attack", description="Атаковать цель"),
-    BotCommand(command="spell", description="Сотворить заклинание"),
-    BotCommand(command="rest", description="Совершить долгий отдых"),
-    BotCommand(command="levelup", description="Повысить уровень"),
-    BotCommand(command="journal", description="Показать журнал сессии"),
-    BotCommand(command="export", description="Скачать журнал TXT"),
-    BotCommand(command="help", description="Показать помощь"),
+    BotCommand(command="start", description="Открыть игровое меню"),
+    BotCommand(command="help", description="Показать правила и кнопки"),
 ]
 
 
@@ -43,15 +31,13 @@ async def main() -> None:
     await database.initialize()
     store = SessionStore(database)
 
-    bot = Bot(
-        token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dispatcher = Dispatcher()
-    dispatcher.include_router(build_router(database, store))
+    dispatcher.include_router(build_button_router(database, store))
+    dispatcher.include_router(build_router(database, store))  # резервные slash-команды
 
     await bot.set_my_commands(COMMANDS)
-    logging.getLogger(__name__).info("D&D bot is entering the dungeon")
+    logging.getLogger(__name__).info("D&D bot is entering the dungeon with button UI")
     await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
 
 
