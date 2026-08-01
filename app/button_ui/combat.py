@@ -5,9 +5,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from app.combat import attack, cast_spell, living_enemies, start_combat
+from app.combat import (
+    attack,
+    cast_spell,
+    enemy_phase,
+    living_enemies,
+    roll_initiative,
+    start_combat,
+)
 from app.database import Database
 from app.dice import ability_modifier, parse_and_roll
+from app.gameplay import calculate_party_level
 from app.generators import generate_rest_event, generate_spell
 from app.session import SessionStore
 from app.button_ui.common import campaign_context, enemies_text, esc, signed
@@ -34,6 +42,39 @@ class SpellInput(StatesGroup):
 def build_combat_router(database: Database, store: SessionStore) -> Router:
     router = Router(name="button_combat")
 
+    def initiative_text(state: dict) -> str:
+        order = state.get("initiative_order", [])
+        if not order:
+            return ""
+        lines = [f"{index}. {esc(item['name'])} — {item['initiative']}" for index, item in enumerate(order, 1)]
+        return "\n\n<b>Инициатива:</b>\n" + "\n".join(lines)
+
+    async def enemy_response(message: Message, state: dict, character: dict | None) -> tuple[str, bool]:
+        if not character or not living_enemies(state):
+            return "", False
+        dexterity = int(character["abilities"]["ЛОВ"])
+        armor_class = 10 + ability_modifier(dexterity)
+        result = enemy_phase(state, int(character["current_hp"]), armor_class)
+        character["current_hp"] = result["current_hp"]
+        await database.update_character(character)
+        lines = []
+        for event in result["events"]:
+            if event["critical"]:
+                lines.append(f"💥 {esc(event['enemy'])}: критический удар, {event['damage']} урона")
+            elif event["hit"]:
+                lines.append(f"🩸 {esc(event['enemy'])}: попадание, {event['damage']} урона")
+            else:
+                lines.append(f"🛡️ {esc(event['enemy'])}: промах")
+        text = (
+            f"\n\n<b>Ход врагов</b>\n" + "\n".join(lines)
+            + f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
+        )
+        if result["defeated"]:
+            await store.clear_combat(message.chat.id)
+            text += "\n\n☠️ <b>Герой падает без сил. Бой завершён поражением.</b>"
+            return text, True
+        return text, False
+
     async def show_combat(message: Message) -> None:
         state = await store.get_combat(message.chat.id)
         if not state or not living_enemies(state):
@@ -44,30 +85,41 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
                 COMBAT_MENU,
             )
             return
+        character = await database.get_active_character(message.chat.id)
+        hero_status = ""
+        if character:
+            hero_status = f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
         await send_scene(
             message,
             "combat",
-            f"🛡️ <b>Раунд {state.get('round', 1)}</b>\n\n{enemies_text(state)}\n\nВыбери цель атаки:",
+            f"🛡️ <b>Раунд {state.get('round', 1)}</b>\n\n{enemies_text(state)}{hero_status}"
+            f"{initiative_text(state)}\n\nВыбери цель атаки:",
             attack_targets_keyboard(state),
         )
 
     async def begin_combat(message: Message) -> None:
         character = await database.get_active_character(message.chat.id)
-        level = int(character["level"]) if character else 1
+        fallback_level = int(character["level"]) if character else 1
+        members = await database.get_party_members(message.chat.id)
+        level = calculate_party_level(members, fallback_level)
         state = start_combat(level)
+        dexterity = int(character["abilities"]["ЛОВ"]) if character else 12
+        roll_initiative(state, ability_modifier(dexterity))
         await store.set_combat(message.chat.id, state)
         await store.log(
             message.chat.id,
             "combat",
-            f"Начат бой: {', '.join(enemy['name'] for enemy in state['enemies'])}",
+            f"Начат бой для партии уровня {level}: {', '.join(enemy['name'] for enemy in state['enemies'])}",
             payload=state,
         )
         _, suffix = await campaign_context(store, message.chat.id)
+        party_note = f"Партия: {len(members)} игроков" if members else "Одинокий герой"
         await send_scene(
             message,
             "combat",
             f"🩸 <b>Инициатива брошена. Бой начинается!</b>\n\n"
-            f"Уровень угрозы: {level}\n{enemies_text(state)}\n\nВыбери противника кнопкой ниже.{suffix}",
+            f"{party_note} · Уровень угрозы: {level}\n{enemies_text(state)}"
+            f"{initiative_text(state)}\n\nПосле каждого действия враги получают ответный ход.{suffix}",
             attack_targets_keyboard(state),
         )
 
@@ -109,13 +161,20 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             character["xp"] += result["xp"]
             await database.update_character(character)
             text += f"\n☠️ Противник повержен. Получено <b>{result['xp']} XP</b>."
-        if living_enemies(state):
-            await store.set_combat(message.chat.id, state)
-            keyboard = attack_targets_keyboard(state)
-        else:
+
+        if not living_enemies(state):
             await store.clear_combat(message.chat.id)
             text += "\n\n🏆 <b>Поле боя стихает. Победа!</b>"
             keyboard = COMBAT_MENU
+        else:
+            response, hero_defeated = await enemy_response(message, state, character)
+            text += response
+            if hero_defeated:
+                keyboard = COMBAT_MENU
+            else:
+                await store.set_combat(message.chat.id, state)
+                keyboard = attack_targets_keyboard(state)
+
         await store.log(
             message.chat.id,
             "attack",
@@ -158,8 +217,13 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
                 await database.update_character(character)
                 text += f"\n☠️ Получено <b>{result['xp']} XP</b>."
             if living_enemies(state):
-                await store.set_combat(message.chat.id, state)
-                keyboard = attack_targets_keyboard(state)
+                response, hero_defeated = await enemy_response(message, state, character)
+                text += response
+                if hero_defeated:
+                    keyboard = COMBAT_MENU
+                else:
+                    await store.set_combat(message.chat.id, state)
+                    keyboard = attack_targets_keyboard(state)
             else:
                 await store.clear_combat(message.chat.id)
                 text += "\n\n🏆 <b>Последний враг повержен магией!</b>"
