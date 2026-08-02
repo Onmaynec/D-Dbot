@@ -32,10 +32,67 @@ jobs:
           app/main.py
           app/maintenance.py
           app/daily_rewards.py
+          app/forge.py
           app/button_ui/daily.py
+          app/button_ui/forge.py
           app/button_ui/router.py
           tests/test_maintenance_v41.py
           tests/test_daily_rewards_v42.py
+          tests/test_forge_v43.py
           --ignore E501
       - name: Tests
         run: pytest -q
+
+  release:
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(python - <<'PY'
+          from app import __version__
+          print(__version__)
+          PY
+          )"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Publish tag and Latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            exit 0
+          fi
+
+          NOTES_FILE="docs/releases/$TAG.md"
+          if [[ ! -f "$NOTES_FILE" ]]; then
+            echo "Missing release notes: $NOTES_FILE" >&2
+            exit 1
+          fi
+
+          jq -n \
+            --arg tag "$TAG" \
+            --arg target "$GITHUB_SHA" \
+            --arg name "D&D Telegram Master $TAG" \
+            --rawfile body "$NOTES_FILE" \
+            '{
+              tag_name: $tag,
+              target_commitish: $target,
+              name: $name,
+              body: $body,
+              draft: false,
+              prerelease: false,
+              make_latest: "true"
+            }' > release.json
+
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input release.json
