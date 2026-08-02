@@ -8,15 +8,18 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
+from app import __version__
 from app.button_ui import build_button_router
 from app.config import Settings
 from app.database import Database
 from app.handlers import build_router
+from app.maintenance import create_database_backup
 from app.session import SessionStore
 
 COMMANDS = [
     BotCommand(command="start", description="Открыть игровое меню"),
     BotCommand(command="help", description="Показать правила и кнопки"),
+    BotCommand(command="status", description="Проверить версию и состояние данных"),
 ]
 
 
@@ -26,9 +29,21 @@ async def main() -> None:
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    logger = logging.getLogger(__name__)
 
     database = Database(settings.database_path)
     await database.initialize()
+    if settings.backup_on_start:
+        try:
+            backup_path = await create_database_backup(
+                database.path,
+                settings.backup_dir,
+                settings.backup_keep,
+            )
+            logger.info("SQLite backup created: %s", backup_path)
+        except Exception:
+            logger.exception("Unable to create startup SQLite backup")
+
     store = SessionStore(database)
 
     bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -37,7 +52,7 @@ async def main() -> None:
     dispatcher.include_router(build_router(database, store))  # резервные slash-команды
 
     await bot.set_my_commands(COMMANDS)
-    logging.getLogger(__name__).info("D&D bot is entering the dungeon with button UI")
+    logger.info("D&D bot %s is entering the dungeon with button UI", __version__)
     await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
 
 
