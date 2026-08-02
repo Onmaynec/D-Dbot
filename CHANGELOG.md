@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.6.0 — Party Support
+
+### Added
+
+- `/support` command for battlefield healing during party combat;
+- selection of any wounded or unconscious party member as the healing target;
+- support for normal and greater healing potions from the shared inventory;
+- revival from zero HP when a potion restores health;
+- support actions consume the acting player's turn;
+- the final support action of a round triggers the shared enemy phase;
+- atomic updates for inventory, party HP, acted-player list, round state, and combat state;
+- duplicate-click and missing-item rollback protection;
+- `party_support_history` audit table;
+- tests for healing, revival, duplicate turns, rollback, and round completion.
+
+### Compatibility
+
+- existing v4.5 party combats automatically support battlefield healing;
+- solo inventory healing remains unchanged;
+- no new environment variables or database migration commands are required.
+
 ## 4.5.0 — Party Combat
 
 ### Added
