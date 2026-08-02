@@ -22,7 +22,7 @@
 - one-time migration that enables document-mode PNG delivery for every chat;
 - SHA256 manifest and verification script for all sixteen source PNG files;
 - PowerShell installer for PNG files downloaded separately;
-- release workflow upload of every HQ PNG as an individual GitHub Release asset;
+- optional release-workflow upload of HQ PNG files when they are present in `assets/images_hq`;
 - integration tests for equipment, combat choices, story consequences, casino transactions, and duplicate-safe rewards.
 
 ### Changed
