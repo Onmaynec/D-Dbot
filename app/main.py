@@ -17,14 +17,18 @@ from app.maintenance import create_database_backup
 from app.session import SessionStore
 
 COMMANDS = [
-    BotCommand(command="start", description="Открыть игровое меню"),
-    BotCommand(command="help", description="Показать правила и кнопки"),
+    BotCommand(command="start", description="Открыть обновлённое игровое меню"),
+    BotCommand(command="help", description="Показать понятные правила игры"),
+    BotCommand(command="equipment", description="Оружие, броня и экипировка героя"),
+    BotCommand(command="choice", description="Принять сюжетное решение партии"),
+    BotCommand(command="actions", description="Открыть тактические действия в бою"),
+    BotCommand(command="support", description="Вылечить союзника в бою"),
+    BotCommand(command="tactics", description="Использовать боевые реликвии"),
+    BotCommand(command="casino", description="Сыграть на игровое золото"),
     BotCommand(command="daily", description="Получить ежедневную награду"),
     BotCommand(command="forge", description="Открыть кузницу и разбор предметов"),
-    BotCommand(command="tactics", description="Использовать боевые предметы"),
-    BotCommand(command="support", description="Вылечить союзника в бою"),
-    BotCommand(command="rewards", description="Показать награды за победы"),
-    BotCommand(command="status", description="Проверить версию и состояние данных"),
+    BotCommand(command="rewards", description="История наград за победы"),
+    BotCommand(command="status", description="Версия и состояние данных"),
 ]
 
 
@@ -51,14 +55,20 @@ async def main() -> None:
 
     store = SessionStore(database)
 
-    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=settings.bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dispatcher = Dispatcher()
     dispatcher.include_router(build_button_router(database, store))
-    dispatcher.include_router(build_router(database, store))  # резервные slash-команды
+    dispatcher.include_router(build_router(database, store))
 
     await bot.set_my_commands(COMMANDS)
-    logger.info("D&D bot %s is entering the dungeon with button UI", __version__)
-    await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
+    logger.info("D&D bot %s Adventure Reforged is starting", __version__)
+    await dispatcher.start_polling(
+        bot,
+        allowed_updates=dispatcher.resolve_used_update_types(),
+    )
 
 
 if __name__ == "__main__":

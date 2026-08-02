@@ -24,37 +24,38 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
       - name: Ruff critical errors
         run: ruff check . --select E9,F63,F7,F82
-      - name: Ruff release modules
+      - name: Ruff v5 release modules
         run: >-
           ruff check
           app/__init__.py
-          app/config.py
           app/main.py
-          app/maintenance.py
-          app/daily_rewards.py
-          app/forge.py
-          app/tactical_items.py
-          app/battle_rewards.py
+          app/combat.py
+          app/equipment.py
+          app/casino.py
+          app/story_choices.py
+          app/combat_choices.py
           app/party_combat.py
-          app/party_support.py
-          app/session.py
-          app/button_ui/daily.py
-          app/button_ui/forge.py
-          app/button_ui/tactical.py
-          app/button_ui/support.py
-          app/button_ui/rewards.py
-          app/button_ui/combat.py
+          app/v5_migrations.py
+          app/button_ui/common.py
+          app/button_ui/keyboards.py
+          app/button_ui/media.py
+          app/button_ui/equipment.py
+          app/button_ui/casino.py
+          app/button_ui/choices.py
+          app/button_ui/combat_choices.py
           app/button_ui/router.py
-          tests/test_maintenance_v41.py
-          tests/test_daily_rewards_v42.py
-          tests/test_forge_v43.py
-          tests/test_tactical_items_v44.py
-          tests/test_party_combat_v45.py
-          tests/test_party_support_v46.py
-          tests/test_battle_rewards_v47.py
+          tests/test_adventure_reforged_v50.py
           --ignore E501
       - name: Tests
         run: pytest -q
+      - name: Verify HQ scene manifest
+        shell: bash
+        run: |
+          if [[ -d assets/images_hq ]] && compgen -G 'assets/images_hq/*.png' >/dev/null; then
+            python scripts/verify_hq_assets.py
+          else
+            echo 'HQ PNG files are not present in this checkout; legacy images remain available.'
+          fi
 
   release:
     needs: quality
@@ -79,7 +80,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>&1; then
@@ -109,3 +109,7 @@ jobs:
             }' > release.json
 
           gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input release.json
+
+          if [[ -d assets/images_hq ]] && compgen -G 'assets/images_hq/*.png' >/dev/null; then
+            gh release upload "$TAG" assets/images_hq/*.png --clobber
+          fi
