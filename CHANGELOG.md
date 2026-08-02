@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.3.0 — Forge & Salvage
+
+### Added
+
+- `/forge` command with an inline crafting and salvage interface;
+- three recipes built from items already available in the shop and daily rewards;
+- deterministic salvage values based on item rarity;
+- atomic crafting transactions that consume ingredients and gold together;
+- atomic salvage transactions that remove one item and credit the shared treasury;
+- persistent `forge_history` audit table for crafted and salvaged items;
+- stale-button protection through stable short item codes;
+- automated post-CI publication of a version tag and GitHub Release marked as Latest;
+- tests for successful crafting, rollback, stack salvage, and invalid callbacks.
+
+### Recipes
+
+- two healing potions + 15 gold → greater healing potion;
+- luck scroll + silver arrows + 20 gold → shield scroll;
+- two fate tokens + greater healing potion + 80 gold → phoenix feather.
+
 ## 4.2.0 — Daily Rewards
 
 ### Added
