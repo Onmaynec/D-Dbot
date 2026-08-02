@@ -34,6 +34,7 @@ jobs:
           app/daily_rewards.py
           app/forge.py
           app/tactical_items.py
+          app/party_combat.py
           app/session.py
           app/button_ui/daily.py
           app/button_ui/forge.py
@@ -44,6 +45,7 @@ jobs:
           tests/test_daily_rewards_v42.py
           tests/test_forge_v43.py
           tests/test_tactical_items_v44.py
+          tests/test_party_combat_v45.py
           --ignore E501
       - name: Tests
         run: pytest -q

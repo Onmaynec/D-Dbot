@@ -32,6 +32,7 @@ from app.database import Database
 from app.dice import ability_modifier, parse_and_roll
 from app.gameplay import calculate_party_level
 from app.generators import generate_rest_event, generate_spell
+from app.party_combat import PartyActionResult, PartyCombatStore, pending_members
 from app.session import SessionStore
 from app.tactical_items import advance_shield, armor_bonus, combat_effects_text, trigger_phoenix
 
@@ -42,15 +43,68 @@ class SpellInput(StatesGroup):
 
 def build_combat_router(database: Database, store: SessionStore) -> Router:
     router = Router(name="button_combat")
+    party_store = PartyCombatStore(database.path)
 
     def initiative_text(state: dict) -> str:
         order = state.get("initiative_order", [])
         if not order:
             return ""
-        lines = [f"{index}. {esc(item['name'])} — {item['initiative']}" for index, item in enumerate(order, 1)]
+        lines = [
+            f"{index}. {esc(item['name'])} — {item['initiative']}"
+            for index, item in enumerate(order, 1)
+        ]
         return "\n\n<b>Инициатива:</b>\n" + "\n".join(lines)
 
-    async def enemy_response(message: Message, state: dict, character: dict | None) -> tuple[str, bool]:
+    def party_status_text(state: dict) -> str:
+        acted = {int(value) for value in state.get("acted_user_ids", [])}
+        lines: list[str] = []
+        for member in state.get("party", []):
+            character = member["character"]
+            hp = int(character["current_hp"])
+            if hp <= 0:
+                marker = "☠️"
+            elif int(member["user_id"]) in acted:
+                marker = "✅"
+            else:
+                marker = "⏳"
+            lines.append(
+                f"{marker} <b>{esc(member['display_name'])}</b> — {esc(character['name'])}: "
+                f"{hp}/{character['max_hp']} HP"
+            )
+        return "\n".join(lines)
+
+    def enemy_events_text(result: PartyActionResult) -> str:
+        if not result.enemy_events:
+            return ""
+        lines = ["\n\n<b>Ход врагов</b>"]
+        for event in result.enemy_events:
+            if event["critical"]:
+                outcome = f"критический удар, {event['damage']} урона"
+            elif event["hit"]:
+                outcome = f"попадание, {event['damage']} урона"
+            else:
+                outcome = "промах"
+            lines.append(
+                f"• {esc(event['enemy'])} → {esc(event['target_name'])}: {outcome} "
+                f"({event['current_hp']}/{event['max_hp']} HP)"
+            )
+            if event["revived"]:
+                lines.append("  🔥 Перо феникса возвращает героя в бой.")
+        if result.shield_expired:
+            lines.append("⌛ Защитная руна гаснет.")
+        return "\n".join(lines)
+
+    async def sync_party_result(message: Message, result: PartyActionResult) -> None:
+        if result.victory or result.defeat:
+            await store.clear_combat(message.chat.id)
+        elif result.state is not None:
+            await store.cache_combat(message.chat.id, result.state)
+
+    async def enemy_response(
+        message: Message,
+        state: dict,
+        character: dict | None,
+    ) -> tuple[str, bool]:
         if not character or not living_enemies(state):
             return "", False
         dexterity = int(character["abilities"]["ЛОВ"])
@@ -70,7 +124,8 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             else:
                 lines.append(f"🛡️ {esc(event['enemy'])}: промах")
         text = (
-            "\n\n<b>Ход врагов</b>\n" + "\n".join(lines)
+            "\n\n<b>Ход врагов</b>\n"
+            + "\n".join(lines)
             + f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
         )
         if shield_bonus:
@@ -107,17 +162,34 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
                 COMBAT_MENU,
             )
             return
-        character = await database.get_active_character(message.chat.id)
-        hero_status = ""
-        if character:
-            hero_status = f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
+
+        if bool(state.get("party_mode", False)):
+            hero_status = "\n\n<b>Партия</b>\n" + party_status_text(state)
+            pending = pending_members(state)
+            pending_status = (
+                "\n\nХод ожидается от: "
+                + ", ".join(esc(member["display_name"]) for member in pending)
+                if pending
+                else ""
+            )
+        else:
+            character = await database.get_active_character(message.chat.id)
+            hero_status = ""
+            if character:
+                hero_status = (
+                    f"\n\n❤️ {esc(character['name'])}: "
+                    f"{character['current_hp']}/{character['max_hp']} HP"
+                )
+            pending_status = ""
+
         effects = combat_effects_text(state)
         effects_status = f"\n\n<b>Тактические эффекты</b>\n{effects}" if effects else ""
         await send_scene(
             message,
             "combat",
-            f"🛡️ <b>Раунд {state.get('round', 1)}</b>\n\n{enemies_text(state)}{hero_status}{effects_status}"
-            f"{initiative_text(state)}\n\nВыбери цель атаки или открой /tactics:",
+            f"🛡️ <b>Раунд {state.get('round', 1)}</b>\n\n{enemies_text(state)}"
+            f"{hero_status}{effects_status}{pending_status}{initiative_text(state)}\n\n"
+            "Выбери цель атаки или открой /tactics:",
             attack_targets_keyboard(state),
         )
 
@@ -127,9 +199,19 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         members = await database.get_party_members(message.chat.id)
         level = calculate_party_level(members, fallback_level)
         state = start_combat(level)
-        dexterity = int(character["abilities"]["ЛОВ"]) if character else 12
+        if members:
+            dexterity = round(
+                sum(int(member["character"]["abilities"]["ЛОВ"]) for member in members)
+                / len(members)
+            )
+        else:
+            dexterity = int(character["abilities"]["ЛОВ"]) if character else 12
         roll_initiative(state, ability_modifier(dexterity))
-        await store.set_combat(message.chat.id, state)
+        if members:
+            state = await party_store.start(message.chat.id, state, members)
+            await store.cache_combat(message.chat.id, state)
+        else:
+            await store.set_combat(message.chat.id, state)
         await store.log(
             message.chat.id,
             "combat",
@@ -137,13 +219,21 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             payload=state,
         )
         _, suffix = await campaign_context(store, message.chat.id)
-        party_note = f"Партия: {len(members)} игроков" if members else "Одинокий герой"
+        if members:
+            rule = (
+                "Каждый живой участник действует один раз. "
+                "После последнего хода начинается общая фаза врагов."
+            )
+            party_note = f"Партия: {len(members)} игроков"
+        else:
+            rule = "После каждого действия враги получают ответный ход."
+            party_note = "Одинокий герой"
         await send_scene(
             message,
             "combat",
             f"🩸 <b>Инициатива брошена. Бой начинается!</b>\n\n"
             f"{party_note} · Уровень угрозы: {level}\n{enemies_text(state)}"
-            f"{initiative_text(state)}\n\nПосле каждого действия враги получают ответный ход. "
+            f"{initiative_text(state)}\n\n{rule} "
             f"Боевые предметы открываются командой /tactics.{suffix}",
             attack_targets_keyboard(state),
         )
@@ -153,13 +243,85 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         if not state or not living_enemies(state):
             await show_combat(message)
             return
-        await send_scene(message, "attack", f"🗡️ <b>Кого атаковать?</b>\n\n{enemies_text(state)}", attack_targets_keyboard(state))
+        await send_scene(
+            message,
+            "attack",
+            f"🗡️ <b>Кого атаковать?</b>\n\n{enemies_text(state)}",
+            attack_targets_keyboard(state),
+        )
 
-    async def perform_attack(message: Message, target_text: str) -> None:
+    async def perform_party_attack(
+        message: Message,
+        target_text: str,
+        user_id: int,
+    ) -> str:
+        result = await party_store.attack(message.chat.id, user_id, target_text)
+        if not result.allowed or result.action is None or result.actor is None:
+            return result.reason
+        await sync_party_result(message, result)
+
+        action = result.action
+        target = action["target"]
+        actor = result.actor["character"]
+        modifier = ability_modifier(int(actor["abilities"]["СИЛ"]))
+        proficiency = 2 + max(0, (int(actor.get("level", 1)) - 1) // 4)
+        if action["critical"]:
+            outcome = f"💥 <b>КРИТИЧЕСКИЙ УДАР!</b> {action['damage']} урона."
+        elif action["hit"]:
+            outcome = f"🗡️ Попадание: <b>{action['damage']} урона</b>."
+        else:
+            outcome = "🛡️ Удар встречает броню — промах."
+        text = (
+            f"🧑‍🤝‍🧑 <b>{esc(result.actor['display_name'])}</b> действует героем "
+            f"<b>{esc(actor['name'])}</b>.\n"
+            f"🎲 d20: {action['natural']} {signed(modifier + proficiency)} = "
+            f"<b>{action['total']}</b> против КД {target['ac']}\n"
+            f"{outcome}\n{esc(target['name'])}: {target['hp']}/{target['max_hp']} HP"
+        )
+        if action["defeated"]:
+            text += f"\n☠️ Противник повержен. Получено <b>{action['xp']} XP</b>."
+        text += enemy_events_text(result)
+
+        if result.victory:
+            text += "\n\n🏆 <b>Партия одерживает победу!</b>"
+            keyboard = COMBAT_MENU
+        elif result.defeat:
+            text += "\n\n☠️ <b>Вся партия пала. Бой завершён поражением.</b>"
+            keyboard = COMBAT_MENU
+        else:
+            assert result.state is not None
+            pending = pending_members(result.state)
+            if pending:
+                text += "\n\n⏳ Ожидаются ходы: " + ", ".join(
+                    esc(member["display_name"]) for member in pending
+                )
+            elif result.round_complete:
+                text += f"\n\n🔄 Начинается раунд <b>{result.state['round']}</b>."
+            text += "\n\n<b>Партия</b>\n" + party_status_text(result.state)
+            keyboard = attack_targets_keyboard(result.state)
+
+        await store.log(
+            message.chat.id,
+            "party_attack",
+            f"{result.actor['display_name']} атакует {target['name']}: "
+            f"бросок {action['total']}, урон {action['damage']}",
+        )
+        _, suffix = await campaign_context(store, message.chat.id)
+        await send_scene(message, "attack", text + suffix, keyboard)
+        return ""
+
+    async def perform_attack(
+        message: Message,
+        target_text: str,
+        user_id: int | None = None,
+    ) -> str:
         state = await store.get_combat(message.chat.id)
         if not state:
             await send_scene(message, "combat", "🛡️ Сейчас нет активного боя.", COMBAT_MENU)
-            return
+            return ""
+        if bool(state.get("party_mode", False)) and user_id is not None:
+            return await perform_party_attack(message, target_text, user_id)
+
         character = await database.get_active_character(message.chat.id)
         strength = character["abilities"]["СИЛ"] if character else 16
         level = int(character["level"]) if character else 1
@@ -168,8 +330,13 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         try:
             result = attack(state, target_text, modifier + proficiency, modifier)
         except ValueError as error:
-            await send_scene(message, "attack", f"⚠️ {esc(error)}\n\n{enemies_text(state)}", attack_targets_keyboard(state))
-            return
+            await send_scene(
+                message,
+                "attack",
+                f"⚠️ {esc(error)}\n\n{enemies_text(state)}",
+                attack_targets_keyboard(state),
+            )
+            return ""
 
         target = result["target"]
         if result["critical"]:
@@ -180,7 +347,8 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             outcome = "🛡️ Удар встречает броню — промах."
         text = (
             f"🎲 d20: {result['natural']} {signed(modifier + proficiency)} = <b>{result['total']}</b> "
-            f"против КД {target['ac']}\n{outcome}\n{esc(target['name'])}: {target['hp']}/{target['max_hp']} HP"
+            f"против КД {target['ac']}\n{outcome}\n{esc(target['name'])}: "
+            f"{target['hp']}/{target['max_hp']} HP"
         )
         if result["defeated"] and character:
             character["xp"] += result["xp"]
@@ -207,14 +375,85 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         )
         _, suffix = await campaign_context(store, message.chat.id)
         await send_scene(message, "attack", text + suffix, keyboard)
+        return ""
 
-    async def cast_named_spell(message: Message, spell_name: str) -> None:
+    async def perform_party_spell(
+        message: Message,
+        spell: dict,
+        user_id: int,
+    ) -> str:
+        result = await party_store.spell(message.chat.id, user_id, spell)
+        if not result.allowed or result.action is None or result.actor is None:
+            return result.reason
+        await sync_party_result(message, result)
+
+        action = result.action
+        target = action["target"]
+        actor = result.actor["character"]
+        level = int(actor.get("level", 1))
+        modifier = (
+            ability_modifier(int(actor["abilities"]["МДР"]))
+            + 2
+            + max(0, (level - 1) // 4)
+        )
+        if action["critical"]:
+            outcome = f"💥 Магический крит: <b>{action['damage']} урона</b>."
+        elif action["success"]:
+            outcome = f"🔮 Заклинание достигает цели: <b>{action['damage']} урона</b>."
+        else:
+            outcome = "🌫️ Магия рассеивается, не пробив защиту цели."
+        text = (
+            f"✨ <b>{esc(result.actor['display_name'])}</b> творит {esc(spell['name'])} "
+            f"героем <b>{esc(actor['name'])}</b>.\n"
+            f"🎲 d20: {action['natural']} {signed(modifier)} = <b>{action['total']}</b>\n"
+            f"{outcome}\n{esc(target['name'])}: {target['hp']}/{target['max_hp']} HP"
+        )
+        if action["defeated"]:
+            text += f"\n☠️ Получено <b>{action['xp']} XP</b>."
+        text += enemy_events_text(result)
+
+        if result.victory:
+            text += "\n\n🏆 <b>Последний враг повержен магией!</b>"
+            keyboard = COMBAT_MENU
+        elif result.defeat:
+            text += "\n\n☠️ <b>Вся партия пала. Бой завершён поражением.</b>"
+            keyboard = COMBAT_MENU
+        else:
+            assert result.state is not None
+            pending = pending_members(result.state)
+            if pending:
+                text += "\n\n⏳ Ожидаются ходы: " + ", ".join(
+                    esc(member["display_name"]) for member in pending
+                )
+            elif result.round_complete:
+                text += f"\n\n🔄 Начинается раунд <b>{result.state['round']}</b>."
+            text += "\n\n<b>Партия</b>\n" + party_status_text(result.state)
+            keyboard = attack_targets_keyboard(result.state)
+
+        await store.log(
+            message.chat.id,
+            "party_spell",
+            f"{result.actor['display_name']} применяет {spell['name']} против {target['name']}",
+            payload=spell,
+        )
+        _, suffix = await campaign_context(store, message.chat.id)
+        await send_scene(message, "spell", text + suffix, keyboard)
+        return ""
+
+    async def cast_named_spell(
+        message: Message,
+        spell_name: str,
+        user_id: int | None = None,
+    ) -> str:
         spell_name = spell_name.strip()
         if not spell_name:
             await send_scene(message, "spell", "✨ Назови заклинание текстом.", SPELL_MENU)
-            return
+            return ""
         spell = generate_spell(spell_name)
         state = await store.get_combat(message.chat.id)
+        if state and bool(state.get("party_mode", False)) and user_id is not None:
+            return await perform_party_spell(message, spell, user_id)
+
         character = await database.get_active_character(message.chat.id)
         wisdom = character["abilities"]["МДР"] if character else 16
         level = int(character["level"]) if character else 1
@@ -256,9 +495,15 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         else:
             result = parse_and_roll(f"d20{signed(modifier)}")
             text += f"\n\n🎲 Проверка силы магии: <b>{result.total}</b>."
-        await store.log(message.chat.id, "spell", f"Сотворено заклинание {spell['name']}", payload=spell)
+        await store.log(
+            message.chat.id,
+            "spell",
+            f"Сотворено заклинание {spell['name']}",
+            payload=spell,
+        )
         _, suffix = await campaign_context(store, message.chat.id)
         await send_scene(message, "spell", text + suffix, keyboard)
+        return ""
 
     async def check_levelup(message: Message) -> None:
         character = await database.get_active_character(message.chat.id)
@@ -278,7 +523,8 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         await send_scene(
             message,
             "levelup",
-            f"⬆️ <b>{esc(character['name'])} достигает {character['level'] + 1} уровня!</b>\n\nВыбери путь развития:",
+            f"⬆️ <b>{esc(character['name'])} достигает {character['level'] + 1} уровня!</b>\n\n"
+            "Выбери путь развития:",
             levelup_keyboard(int(character["id"])),
         )
 
@@ -303,8 +549,12 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
 
     @router.callback_query(F.data.startswith("attack:"))
     async def attack_target(callback: CallbackQuery) -> None:
-        await callback.answer("Атака!")
-        await perform_attack(callback.message, callback.data.split(":", 1)[1])
+        reason = await perform_attack(
+            callback.message,
+            callback.data.split(":", 1)[1],
+            callback.from_user.id,
+        )
+        await callback.answer(reason or "Атака!", show_alert=bool(reason))
 
     @router.message(F.text == BTN_MAGIC)
     async def magic_button(message: Message) -> None:
@@ -313,17 +563,32 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
     @router.callback_query(F.data == "combat:spell")
     async def combat_spell(callback: CallbackQuery) -> None:
         await callback.answer()
-        await send_scene(callback.message, "spell", "✨ <b>Выбери боевое заклинание.</b>", SPELL_MENU)
+        await send_scene(
+            callback.message,
+            "spell",
+            "✨ <b>Выбери боевое заклинание.</b>",
+            SPELL_MENU,
+        )
 
     @router.callback_query(F.data.startswith("spell:"))
     async def spell_choice(callback: CallbackQuery, state: FSMContext) -> None:
         spell_name = callback.data.split(":", 1)[1]
-        await callback.answer()
         if spell_name == "custom":
+            await callback.answer()
             await state.set_state(SpellInput.name)
-            await send_scene(callback.message, "spell", "✍️ <b>Напиши название своего заклинания.</b>", CANCEL_MENU)
+            await send_scene(
+                callback.message,
+                "spell",
+                "✍️ <b>Напиши название своего заклинания.</b>",
+                CANCEL_MENU,
+            )
             return
-        await cast_named_spell(callback.message, spell_name)
+        reason = await cast_named_spell(
+            callback.message,
+            spell_name,
+            callback.from_user.id,
+        )
+        await callback.answer(reason or "Заклинание сотворено!", show_alert=bool(reason))
 
     @router.message(SpellInput.name)
     async def spell_name(message: Message, state: FSMContext) -> None:
@@ -335,13 +600,20 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             await send_scene(message, "spell", "✨ Пришли название обычным текстом.", CANCEL_MENU)
             return
         await state.clear()
-        await cast_named_spell(message, message.text)
+        reason = await cast_named_spell(message, message.text, message.from_user.id)
+        if reason:
+            await send_scene(message, "spell", f"⚠️ {esc(reason)}", SPELL_MENU)
 
     @router.message(F.text == BTN_REST)
     async def rest_button(message: Message) -> None:
         state = await store.get_combat(message.chat.id)
         if state and living_enemies(state):
-            await send_scene(message, "rest", "⚔️ <b>Отдых невозможен, пока рядом враги.</b>", COMBAT_MENU)
+            await send_scene(
+                message,
+                "rest",
+                "⚔️ <b>Отдых невозможен, пока рядом враги.</b>",
+                COMBAT_MENU,
+            )
             return
         character = await database.get_active_character(message.chat.id)
         event = generate_rest_event()
@@ -354,7 +626,12 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             recovery = "🔥 У костра некому залечивать раны — сначала создай героя."
         await store.log(message.chat.id, "rest", f"Отдых: {event}")
         _, suffix = await campaign_context(store, message.chat.id)
-        await send_scene(message, "rest", f"🛌 <b>Долгий отдых</b>\n\n{recovery}\n\n<i>{esc(event)}</i>{suffix}", MAIN_MENU)
+        await send_scene(
+            message,
+            "rest",
+            f"🛌 <b>Долгий отдых</b>\n\n{recovery}\n\n<i>{esc(event)}</i>{suffix}",
+            MAIN_MENU,
+        )
 
     @router.callback_query(F.data == "levelup:check")
     async def levelup_check(callback: CallbackQuery) -> None:
@@ -384,12 +661,17 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             character["current_hp"] = character["max_hp"]
             change = f"максимум хитов повышен до {character['max_hp']}"
         await database.update_character(character)
-        await store.log(callback.message.chat.id, "levelup", f"{character['name']} получил {character['level']} уровень: {change}")
+        await store.log(
+            callback.message.chat.id,
+            "levelup",
+            f"{character['name']} получил {character['level']} уровень: {change}",
+        )
         await callback.answer("Путь избран!")
         await send_scene(
             callback.message,
             "levelup",
-            f"⬆️ <b>{esc(character['name'])} теперь {character['level']} уровня.</b>\n\n{esc(change.capitalize())}.",
+            f"⬆️ <b>{esc(character['name'])} теперь {character['level']} уровня.</b>\n\n"
+            f"{esc(change.capitalize())}.",
             CHARACTER_MENU,
         )
 
