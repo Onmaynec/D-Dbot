@@ -16,17 +16,20 @@ from app.button_ui.journal import build_journal_router
 from app.button_ui.keyboards import MAIN_MENU
 from app.button_ui.media import configure_image_mode_resolver, send_scene
 from app.button_ui.progression import build_progression_router
+from app.button_ui.tactical import build_tactical_router
 from app.daily_rewards import DailyRewardStore
 from app.database import Database
 from app.dungeon_store import DungeonStore
 from app.maintenance import check_database, format_bytes
 from app.session import SessionStore
+from app.tactical_items import TacticalItemStore
 
 
 def build_button_router(database: Database, store: SessionStore) -> Router:
     router = Router(name="button_ui")
     dungeon_store = DungeonStore(database.path)
     daily_store = DailyRewardStore(database.path)
+    tactical_store = TacticalItemStore(database.path)
     configure_image_mode_resolver(dungeon_store.get_image_mode)
 
     @router.message(CommandStart())
@@ -37,8 +40,8 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             "start",
             "🐉 <b>Врата подземелья открыты.</b>\n\n"
             "Теперь доступны полноценные экспедиции по подземельям, комнаты с ловушками и сокровищами, "
-            "битвы с боссами, ежедневные награды, кузница и настройки качества изображений. "
-            "Всё управление — кнопками.",
+            "битвы с боссами, ежедневные награды, кузница, тактические предметы и настройки изображений. "
+            "Всё управление — кнопками и командами.",
             MAIN_MENU,
         )
 
@@ -52,6 +55,7 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             "исследуй комнаты, сохраняй добычу, отступай или сражайся с финальным боссом. "
             "Команда /daily открывает ежедневный сундук партии со streak-бонусами. "
             "Команда /forge позволяет создавать расходники и разбирать лишнюю добычу в золото. "
+            "Во время боя /tactics активирует Свиток щита или Перо феникса. "
             "В «🎛️ Настройки» можно выбрать сложность и режим изображений без сжатия.\n\n"
             "Команда /status показывает версию бота и проверяет целостность SQLite.",
             MAIN_MENU,
@@ -71,6 +75,7 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
     router.include_router(build_dungeon_router(database, store, dungeon_store))
     router.include_router(build_daily_router(store, daily_store))
     router.include_router(build_forge_router(database, store))
+    router.include_router(build_tactical_router(database, store, tactical_store))
     router.include_router(build_progression_router(database, store))
     # Этот роутер стоит перед старым приключенческим модулем и заменяет прежнюю
     # одноразовую генерацию квестов полноценной системой активных контрактов.

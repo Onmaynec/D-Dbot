@@ -5,19 +5,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
-from app.combat import (
-    attack,
-    cast_spell,
-    enemy_phase,
-    living_enemies,
-    roll_initiative,
-    start_combat,
-)
-from app.database import Database
-from app.dice import ability_modifier, parse_and_roll
-from app.gameplay import calculate_party_level
-from app.generators import generate_rest_event, generate_spell
-from app.session import SessionStore
 from app.button_ui.common import campaign_context, enemies_text, esc, signed
 from app.button_ui.keyboards import (
     BTN_CANCEL,
@@ -33,6 +20,20 @@ from app.button_ui.keyboards import (
     levelup_keyboard,
 )
 from app.button_ui.media import send_scene
+from app.combat import (
+    attack,
+    cast_spell,
+    enemy_phase,
+    living_enemies,
+    roll_initiative,
+    start_combat,
+)
+from app.database import Database
+from app.dice import ability_modifier, parse_and_roll
+from app.gameplay import calculate_party_level
+from app.generators import generate_rest_event, generate_spell
+from app.session import SessionStore
+from app.tactical_items import advance_shield, armor_bonus, combat_effects_text, trigger_phoenix
 
 
 class SpellInput(StatesGroup):
@@ -53,8 +54,11 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         if not character or not living_enemies(state):
             return "", False
         dexterity = int(character["abilities"]["ЛОВ"])
-        armor_class = 10 + ability_modifier(dexterity)
+        base_armor_class = 10 + ability_modifier(dexterity)
+        shield_bonus = armor_bonus(state)
+        armor_class = base_armor_class + shield_bonus
         result = enemy_phase(state, int(character["current_hp"]), armor_class)
+        shield_expired = advance_shield(state) if shield_bonus else False
         character["current_hp"] = result["current_hp"]
         await database.update_character(character)
         lines = []
@@ -66,10 +70,28 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             else:
                 lines.append(f"🛡️ {esc(event['enemy'])}: промах")
         text = (
-            f"\n\n<b>Ход врагов</b>\n" + "\n".join(lines)
+            "\n\n<b>Ход врагов</b>\n" + "\n".join(lines)
             + f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
         )
+        if shield_bonus:
+            text += f"\n🛡️ Защитная руна повышает КД до <b>{armor_class}</b>."
+        if shield_expired:
+            text += "\n⌛ Защитная руна гаснет."
         if result["defeated"]:
+            revived_hp = trigger_phoenix(state, int(character["max_hp"]))
+            if revived_hp is not None:
+                character["current_hp"] = revived_hp
+                await database.update_character(character)
+                await store.log(
+                    message.chat.id,
+                    "combat_item",
+                    f"Перо феникса возвращает {character['name']} в бой с {revived_hp} HP",
+                )
+                text += (
+                    "\n\n🔥 <b>Перо феникса вспыхивает!</b> Герой возвращается в бой."
+                    f"\n❤️ {esc(character['name'])}: {revived_hp}/{character['max_hp']} HP"
+                )
+                return text, False
             await store.clear_combat(message.chat.id)
             text += "\n\n☠️ <b>Герой падает без сил. Бой завершён поражением.</b>"
             return text, True
@@ -89,11 +111,13 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
         hero_status = ""
         if character:
             hero_status = f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
+        effects = combat_effects_text(state)
+        effects_status = f"\n\n<b>Тактические эффекты</b>\n{effects}" if effects else ""
         await send_scene(
             message,
             "combat",
-            f"🛡️ <b>Раунд {state.get('round', 1)}</b>\n\n{enemies_text(state)}{hero_status}"
-            f"{initiative_text(state)}\n\nВыбери цель атаки:",
+            f"🛡️ <b>Раунд {state.get('round', 1)}</b>\n\n{enemies_text(state)}{hero_status}{effects_status}"
+            f"{initiative_text(state)}\n\nВыбери цель атаки или открой /tactics:",
             attack_targets_keyboard(state),
         )
 
@@ -119,7 +143,8 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             "combat",
             f"🩸 <b>Инициатива брошена. Бой начинается!</b>\n\n"
             f"{party_note} · Уровень угрозы: {level}\n{enemies_text(state)}"
-            f"{initiative_text(state)}\n\nПосле каждого действия враги получают ответный ход.{suffix}",
+            f"{initiative_text(state)}\n\nПосле каждого действия враги получают ответный ход. "
+            f"Боевые предметы открываются командой /tactics.{suffix}",
             attack_targets_keyboard(state),
         )
 
