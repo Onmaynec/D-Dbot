@@ -135,7 +135,7 @@ python -m app.main
 
 ## Установка PNG без архива
 
-Скачай 16 PNG релиза по отдельности в папку `Загрузки`, затем выполни:
+Скачай 16 присланных PNG по отдельности в папку `Загрузки`, затем выполни:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_hq_assets.ps1
@@ -153,7 +153,7 @@ pytest -q
 python scripts/verify_hq_assets.py
 ```
 
-CI выполняется на Python 3.11 и 3.12. После зелёного CI на `main` создаются тег и GitHub Release со статусом Latest. PNG из `assets/images_hq/` прикладываются к релизу отдельными файлами.
+CI выполняется на Python 3.11 и 3.12. После зелёного CI на `main` создаются тег и GitHub Release со статусом Latest. Если PNG уже установлены в `assets/images_hq/`, workflow прикладывает их к релизу отдельными файлами; иначе используй присланные отдельно оригиналы и установщик.
 
 ## Новые таблицы v5
 
