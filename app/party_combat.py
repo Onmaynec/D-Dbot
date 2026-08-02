@@ -13,6 +13,7 @@ from typing import Any
 from app.battle_rewards import BattleReward, ensure_battle_id, grant_battle_reward
 from app.combat import attack, cast_spell, living_enemies
 from app.dice import ability_modifier
+from app.equipment import equipment_bonuses
 from app.tactical_items import advance_shield, armor_bonus, trigger_phoenix
 
 
@@ -49,6 +50,7 @@ def prepare_party_state(
     state["party_mode"] = True
     state["party"] = roster
     state["acted_user_ids"] = []
+    state["guard_user_ids"] = []
     ensure_battle_id(state)
     return state
 
@@ -110,6 +112,7 @@ def resolve_party_enemy_phase(
 ) -> dict[str, Any]:
     roller = rng or random
     shield_bonus = armor_bonus(state)
+    guarded_ids = {int(value) for value in state.get("guard_user_ids", [])}
     events: list[dict[str, Any]] = []
 
     for enemy in living_enemies(state):
@@ -118,8 +121,18 @@ def resolve_party_enemy_phase(
             break
         target = roller.choice(targets)
         character = target["character"]
+        user_id = int(target["user_id"])
+        equipment = equipment_bonuses(character)
+        guarded = user_id in guarded_ids
+        guard_ac = 3 + equipment["guard"] if guarded else 0
         dexterity = int(character["abilities"]["ЛОВ"])
-        armor_class = 10 + ability_modifier(dexterity) + shield_bonus
+        armor_class = (
+            10
+            + ability_modifier(dexterity)
+            + shield_bonus
+            + equipment["armor"]
+            + guard_ac
+        )
         natural = roller.randint(1, 20)
         total = natural + int(enemy.get("attack_bonus", 2))
         critical = natural == 20
@@ -134,7 +147,10 @@ def resolve_party_enemy_phase(
                 for _ in range(dice_count)
             )
             damage += max(0, int(enemy.get("attack_bonus", 2)) - 2)
-            damage = max(1, damage)
+            if guarded:
+                damage = max(0, damage - 2)
+            else:
+                damage = max(1, damage)
             character["current_hp"] = max(
                 0,
                 int(character["current_hp"]) - damage,
@@ -148,7 +164,7 @@ def resolve_party_enemy_phase(
         events.append(
             {
                 "enemy": str(enemy["name"]),
-                "target_user_id": int(target["user_id"]),
+                "target_user_id": user_id,
                 "target_display_name": str(target["display_name"]),
                 "target_name": str(character["name"]),
                 "natural": natural,
@@ -160,12 +176,16 @@ def resolve_party_enemy_phase(
                 "current_hp": int(character["current_hp"]),
                 "max_hp": int(character["max_hp"]),
                 "revived": revived,
+                "guarded": guarded,
+                "equipment_armor": equipment["armor"],
+                "guard_armor": guard_ac,
             }
         )
 
     shield_expired = advance_shield(state) if shield_bonus else False
     state["round"] = int(state.get("round", 1)) + 1
     state["acted_user_ids"] = []
+    state["guard_user_ids"] = []
     return {
         "events": events,
         "defeat": not living_party(state),
@@ -356,16 +376,18 @@ def _attack(
         modifier = ability_modifier(int(character["abilities"]["СИЛ"]))
         level = int(character.get("level", 1))
         proficiency = 2 + max(0, (level - 1) // 4)
+        equipment = equipment_bonuses(character)
         try:
             result = attack(
                 state,
                 target_text,
                 modifier + proficiency,
-                modifier,
+                modifier + equipment["damage"],
             )
         except ValueError as error:
             connection.rollback()
             return _denied(str(error), state)
+        result["equipment_damage_bonus"] = equipment["damage"]
 
         if result["defeated"]:
             character["xp"] = int(character.get("xp", 0)) + int(result["xp"])
@@ -390,6 +412,7 @@ def _attack(
                 "target": result["target"]["name"],
                 "roll": result["total"],
                 "damage": result["damage"],
+                "equipment_damage_bonus": equipment["damage"],
                 "defeated": result["defeated"],
                 "round_complete": round_complete,
                 "enemy_events": enemy_events,
@@ -440,11 +463,18 @@ def _spell(
             + 2
             + max(0, (level - 1) // 4)
         )
+        equipment = equipment_bonuses(character)
         try:
-            result = cast_spell(state, spell, modifier)
+            result = cast_spell(
+                state,
+                spell,
+                modifier,
+                damage_bonus=equipment["spell_damage"],
+            )
         except ValueError as error:
             connection.rollback()
             return _denied(str(error), state)
+        result["equipment_spell_damage_bonus"] = equipment["spell_damage"]
 
         if result["defeated"]:
             character["xp"] = int(character.get("xp", 0)) + int(result["xp"])
@@ -470,6 +500,7 @@ def _spell(
                 "target": result["target"]["name"],
                 "roll": result["total"],
                 "damage": result["damage"],
+                "equipment_spell_damage_bonus": equipment["spell_damage"],
                 "defeated": result["defeated"],
                 "round_complete": round_complete,
                 "enemy_events": enemy_events,
