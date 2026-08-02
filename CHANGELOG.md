@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.5.0 — Party Combat
+
+### Added
+
+- real multiplayer turns for ordinary combat;
+- every living party member acts once per round with their own hero stats;
+- enemy phase starts only after all living members have acted;
+- enemies select targets from the living party instead of attacking one global hero;
+- per-player HP and XP persistence in `party_members`;
+- atomic combat-state and party-character updates through `BEGIN IMMEDIATE`;
+- duplicate-turn protection for repeated and concurrent button presses;
+- party status with acted, waiting, and unconscious markers;
+- `party_combat_history` audit table for attacks and spells;
+- tests for turn guards, shared enemy phases, Phoenix Feather recovery, persistence, and spell actions.
+
+### Compatibility
+
+- chats without party members keep the existing solo combat rules;
+- v4.4 Shield Scroll protects the whole party during an enemy phase;
+- v4.4 Phoenix Feather saves the first hero reduced to zero HP;
+- existing campaigns, inventories, and active solo combats remain compatible.
+
 ## 4.4.0 — Tactical Items
 
 ### Added
