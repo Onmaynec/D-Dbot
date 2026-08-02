@@ -4,7 +4,6 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-from app.button_ui.common import esc
 from app.button_ui.keyboards import COMBAT_MENU
 from app.button_ui.media import send_scene
 from app.database import Database
