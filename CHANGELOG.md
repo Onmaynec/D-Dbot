@@ -1,5 +1,26 @@
 # Changelog
 
+## 4.7.0 — Victory Rewards
+
+### Added
+
+- automatic reward bundle when a party wins an ordinary combat;
+- equal completion XP for every party member;
+- gold deposited into the shared treasury;
+- one level-appropriate trophy added to the shared inventory;
+- stable battle IDs and idempotent reward protection;
+- `/rewards` command with the ten latest party victories;
+- persistent `battle_reward_history` audit table;
+- reward metadata attached to the final attack or spell history entry;
+- tests for deterministic calculation, atomic grants, duplicate protection, attack victories, and spell victories.
+
+### Reliability
+
+- combat deletion, party XP, treasury gold, inventory loot, and reward history are committed in one SQLite transaction;
+- repeated or concurrent final clicks cannot duplicate a reward;
+- existing per-kill XP remains compatible, while the completion bonus is shared equally;
+- existing v4.5 and v4.6 party combats receive a battle ID automatically when completed.
+
 ## 4.6.0 — Party Support
 
 ### Added
