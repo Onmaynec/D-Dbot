@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.battle_rewards import BattleReward, ensure_battle_id, grant_battle_reward
 from app.combat import attack, cast_spell, living_enemies
 from app.dice import ability_modifier
 from app.tactical_items import advance_shield, armor_bonus, trigger_phoenix
@@ -27,6 +28,7 @@ class PartyActionResult:
     victory: bool
     defeat: bool
     shield_expired: bool
+    reward: BattleReward | None = None
 
 
 def prepare_party_state(
@@ -47,6 +49,7 @@ def prepare_party_state(
     state["party_mode"] = True
     state["party"] = roster
     state["acted_user_ids"] = []
+    ensure_battle_id(state)
     return state
 
 
@@ -281,7 +284,10 @@ def _finish_or_save(
         _write_state(connection, chat_id, state)
 
 
-def _denied(reason: str, state: dict[str, Any] | None = None) -> PartyActionResult:
+def _denied(
+    reason: str,
+    state: dict[str, Any] | None = None,
+) -> PartyActionResult:
     return PartyActionResult(
         False,
         reason,
@@ -293,7 +299,36 @@ def _denied(reason: str, state: dict[str, Any] | None = None) -> PartyActionResu
         False,
         False,
         False,
+        None,
     )
+
+
+def _resolve_round(
+    state: dict[str, Any],
+    victory: bool,
+) -> tuple[tuple[dict[str, Any], ...], bool, bool, bool]:
+    enemy_events: tuple[dict[str, Any], ...] = ()
+    round_complete = False
+    defeat = False
+    shield_expired = False
+    if not victory and round_ready(state):
+        round_complete = True
+        phase = resolve_party_enemy_phase(state)
+        enemy_events = tuple(phase["events"])
+        defeat = bool(phase["defeat"])
+        shield_expired = bool(phase["shield_expired"])
+    return enemy_events, round_complete, defeat, shield_expired
+
+
+def _reward_payload(reward: BattleReward | None) -> dict[str, Any] | None:
+    if reward is None:
+        return None
+    return {
+        "xp_each": reward.xp_each,
+        "gold": reward.gold,
+        "item_name": reward.item_name,
+        "quantity": reward.quantity,
+    }
 
 
 def _attack(
@@ -337,17 +372,11 @@ def _attack(
         mark_acted(state, user_id)
         original_round = int(state.get("round", 1))
         victory = not living_enemies(state)
-        enemy_events: tuple[dict[str, Any], ...] = ()
-        round_complete = False
-        defeat = False
-        shield_expired = False
-
-        if not victory and round_ready(state):
-            round_complete = True
-            phase = resolve_party_enemy_phase(state)
-            enemy_events = tuple(phase["events"])
-            defeat = bool(phase["defeat"])
-            shield_expired = bool(phase["shield_expired"])
+        enemy_events, round_complete, defeat, shield_expired = _resolve_round(
+            state,
+            victory,
+        )
+        reward = grant_battle_reward(connection, chat_id, state) if victory else None
 
         finished = victory or defeat
         _finish_or_save(connection, chat_id, state, finished)
@@ -364,6 +393,7 @@ def _attack(
                 "defeated": result["defeated"],
                 "round_complete": round_complete,
                 "enemy_events": enemy_events,
+                "reward": _reward_payload(reward),
             },
         )
         connection.commit()
@@ -378,6 +408,7 @@ def _attack(
             victory,
             defeat,
             shield_expired,
+            reward,
         )
 
 
@@ -409,23 +440,22 @@ def _spell(
             + 2
             + max(0, (level - 1) // 4)
         )
-        result = cast_spell(state, spell, modifier)
+        try:
+            result = cast_spell(state, spell, modifier)
+        except ValueError as error:
+            connection.rollback()
+            return _denied(str(error), state)
+
         if result["defeated"]:
             character["xp"] = int(character.get("xp", 0)) + int(result["xp"])
         mark_acted(state, user_id)
         original_round = int(state.get("round", 1))
         victory = not living_enemies(state)
-        enemy_events: tuple[dict[str, Any], ...] = ()
-        round_complete = False
-        defeat = False
-        shield_expired = False
-
-        if not victory and round_ready(state):
-            round_complete = True
-            phase = resolve_party_enemy_phase(state)
-            enemy_events = tuple(phase["events"])
-            defeat = bool(phase["defeat"])
-            shield_expired = bool(phase["shield_expired"])
+        enemy_events, round_complete, defeat, shield_expired = _resolve_round(
+            state,
+            victory,
+        )
+        reward = grant_battle_reward(connection, chat_id, state) if victory else None
 
         finished = victory or defeat
         _finish_or_save(connection, chat_id, state, finished)
@@ -443,6 +473,7 @@ def _spell(
                 "defeated": result["defeated"],
                 "round_complete": round_complete,
                 "enemy_events": enemy_events,
+                "reward": _reward_payload(reward),
             },
         )
         connection.commit()
@@ -457,6 +488,7 @@ def _spell(
             victory,
             defeat,
             shield_expired,
+            reward,
         )
 
 
