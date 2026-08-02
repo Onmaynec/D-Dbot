@@ -11,6 +11,7 @@ from app.button_ui.campaign_progress import build_campaign_progress_router
 from app.button_ui.combat import build_combat_router
 from app.button_ui.daily import build_daily_router
 from app.button_ui.dungeon import build_dungeon_router
+from app.button_ui.forge import build_forge_router
 from app.button_ui.journal import build_journal_router
 from app.button_ui.keyboards import MAIN_MENU
 from app.button_ui.media import configure_image_mode_resolver, send_scene
@@ -36,7 +37,8 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             "start",
             "🐉 <b>Врата подземелья открыты.</b>\n\n"
             "Теперь доступны полноценные экспедиции по подземельям, комнаты с ловушками и сокровищами, "
-            "битвы с боссами, ежедневные награды и настройки качества изображений. Всё управление — кнопками.",
+            "битвы с боссами, ежедневные награды, кузница и настройки качества изображений. "
+            "Всё управление — кнопками.",
             MAIN_MENU,
         )
 
@@ -49,6 +51,7 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             "Начни кампанию и создай героя. В разделе «🏰 Подземелье» запускаются постоянные экспедиции: "
             "исследуй комнаты, сохраняй добычу, отступай или сражайся с финальным боссом. "
             "Команда /daily открывает ежедневный сундук партии со streak-бонусами. "
+            "Команда /forge позволяет создавать расходники и разбирать лишнюю добычу в золото. "
             "В «🎛️ Настройки» можно выбрать сложность и режим изображений без сжатия.\n\n"
             "Команда /status показывает версию бота и проверяет целостность SQLite.",
             MAIN_MENU,
@@ -67,6 +70,7 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
 
     router.include_router(build_dungeon_router(database, store, dungeon_store))
     router.include_router(build_daily_router(store, daily_store))
+    router.include_router(build_forge_router(database, store))
     router.include_router(build_progression_router(database, store))
     # Этот роутер стоит перед старым приключенческим модулем и заменяет прежнюю
     # одноразовую генерацию квестов полноценной системой активных контрактов.
