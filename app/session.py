@@ -65,6 +65,11 @@ class SessionStore:
         session["combat"] = state
         await self.database.save_combat(chat_id, state)
 
+    async def cache_combat(self, chat_id: int, state: dict[str, Any]) -> None:
+        """Refresh in-memory combat after another service persisted it atomically."""
+        session = await self._ensure(chat_id)
+        session["combat"] = state
+
     async def clear_combat(self, chat_id: int) -> None:
         session = await self._ensure(chat_id)
         session["combat"] = None
