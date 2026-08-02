@@ -19,6 +19,7 @@ from app.session import SessionStore
 COMMANDS = [
     BotCommand(command="start", description="Открыть игровое меню"),
     BotCommand(command="help", description="Показать правила и кнопки"),
+    BotCommand(command="daily", description="Получить ежедневную награду"),
     BotCommand(command="status", description="Проверить версию и состояние данных"),
 ]
 
