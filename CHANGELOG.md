@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.2.0 — Daily Rewards
+
+### Added
+
+- `/daily` command with an inline daily reward chest;
+- party-wide daily streak stored in SQLite;
+- deterministic gold rewards with a preview before claiming;
+- bonus inventory item every third consecutive day;
+- epic `Жетон судьбы` and extra gold every seventh consecutive day;
+- atomic reward transaction that updates the claim, wallet, and inventory together;
+- protection against duplicate claims from repeated clicks or multiple party members;
+- tests for streak continuation, missed-day reset, milestones, and duplicate claims.
+
+### Rules
+
+- one reward is available per chat per UTC calendar day;
+- any party member may open the chest, but the reward goes to the shared treasury;
+- missing a day resets the active streak to day one;
+- total claim history is preserved even after a streak reset.
+
 ## 4.1.0 — Reliability Update
 
 ### Added
