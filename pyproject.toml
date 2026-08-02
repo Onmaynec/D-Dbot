@@ -1,7 +1,7 @@
 [project]
 name = "dnd-telegram-master"
-version = "4.5.0"
-description = "Button-driven D&D Telegram master with persistent multiplayer party combat and SQLite"
+version = "4.6.0"
+description = "Button-driven D&D Telegram master with multiplayer combat, party support, and SQLite"
 requires-python = ">=3.11"
 dependencies = [
     "aiogram>=3.30.0,<4.0.0",
