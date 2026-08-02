@@ -26,22 +26,30 @@ for image_group in (IMAGE_DATA_0, IMAGE_DATA_1, IMAGE_DATA_2, IMAGE_DATA_3, IMAG
     IMAGE_DATA.update(image_group)
 
 SCENE_FILES = {
-    "start": "start.jpg",
-    "campaign": "campaign.jpg",
-    "character": "character.jpg",
-    "quest": "quest.jpg",
-    "npc": "npc.jpg",
-    "encounter_friendly": "encounter_friendly.jpg",
-    "encounter_neutral": "encounter_neutral.jpg",
-    "encounter_hostile": "encounter_hostile.jpg",
-    "combat": "combat.jpg",
-    "attack": "attack.jpg",
-    "spell": "spell.jpg",
-    "rest": "rest.jpg",
-    "levelup": "levelup.jpg",
-    "loot_common": "loot_common.jpg",
-    "loot_rare": "loot_rare.jpg",
-    "journal": "journal.jpg",
+    "start": "Start.png",
+    "campaign": "campaign.png",
+    "character": "character.png",
+    "equipment": "character.png",
+    "quest": "quest.png",
+    "choice": "encounter_neutral.png",
+    "npc": "npc.png",
+    "encounter_friendly": "encounter_friendly.png",
+    "encounter_neutral": "encounter_neutral.png",
+    "encounter_hostile": "encounter_hostile.png",
+    "combat": "combat.png",
+    "attack": "attack.png",
+    "spell": "spell.png",
+    "rest": "rest.png",
+    "levelup": "levelup.png",
+    "loot_common": "loot_common.png",
+    "loot_rare": "loot_rare.png",
+    "casino": "loot_rare.png",
+    "journal": "journal.png",
+}
+
+LEGACY_SCENE_FILES = {
+    scene: ("start.jpg" if scene == "start" else filename.replace(".png", ".jpg").replace("Start.jpg", "start.jpg"))
+    for scene, filename in SCENE_FILES.items()
 }
 
 ImageModeResolver = Callable[[int], Awaitable[str]]
@@ -49,13 +57,11 @@ _image_mode_resolver: ImageModeResolver | None = None
 
 
 def configure_image_mode_resolver(resolver: ImageModeResolver | None) -> None:
-    """Подключает сохранённый для чата режим отправки изображений."""
     global _image_mode_resolver
     _image_mode_resolver = resolver
 
 
 def ensure_fallback_assets() -> None:
-    """Распаковывает встроенные изображения предыдущих версий."""
     GENERATED_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     for filename, encoded in IMAGE_DATA.items():
         path = GENERATED_ASSETS_DIR / filename
@@ -64,10 +70,10 @@ def ensure_fallback_assets() -> None:
 
 
 def ensure_upscaled_assets() -> None:
-    """Готовит улучшенные изображения один раз при первом запуске v4."""
+    """Оставляет совместимость со старыми JPG, когда новые PNG ещё не установлены."""
     ensure_fallback_assets()
     UPSCALED_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    for filename in set(SCENE_FILES.values()):
+    for filename in set(LEGACY_SCENE_FILES.values()):
         destination = UPSCALED_ASSETS_DIR / filename
         if destination.exists() and destination.stat().st_size > 35_000:
             continue
@@ -78,34 +84,40 @@ def ensure_upscaled_assets() -> None:
             try:
                 upscale_image(source, destination)
             except Exception:
-                # Бот продолжит работу со старым изображением даже при проблемах Pillow/файла.
                 continue
 
 
 def scene_path(scene: str) -> Path:
-    filename = SCENE_FILES.get(scene, SCENE_FILES["start"])
-    source_hq = SOURCE_ASSETS_DIR / filename
-    if source_hq.exists() and source_hq.stat().st_size > 35_000:
-        return source_hq
+    resolved_scene = scene if scene in SCENE_FILES else "start"
+    png_name = SCENE_FILES[resolved_scene]
+    source_png = SOURCE_ASSETS_DIR / png_name
+    if source_png.exists() and source_png.stat().st_size > 100_000:
+        return source_png
+
+    legacy_name = LEGACY_SCENE_FILES[resolved_scene]
+    source_legacy = SOURCE_ASSETS_DIR / legacy_name
+    if source_legacy.exists() and source_legacy.stat().st_size > 35_000:
+        return source_legacy
 
     ensure_upscaled_assets()
-    upscaled = UPSCALED_ASSETS_DIR / filename
+    upscaled = UPSCALED_ASSETS_DIR / legacy_name
     if upscaled.exists() and upscaled.stat().st_size > 35_000:
         return upscaled
 
     ensure_fallback_assets()
-    return GENERATED_ASSETS_DIR / filename
+    return GENERATED_ASSETS_DIR / legacy_name
 
 
 def journal_thumbnail() -> FSInputFile:
-    return FSInputFile(scene_path("journal"), filename="journal.jpg")
+    path = scene_path("journal")
+    return FSInputFile(path, filename=path.name)
 
 
 def _plain_text(value: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", value))
 
 
-def _split_plain_caption(value: str, limit: int = 1024) -> list[str]:
+def _split_plain_caption(value: str, limit: int = 4096) -> list[str]:
     text = _plain_text(value).strip()
     if not text:
         return ["🖼️ Сцена приключения"]
@@ -125,12 +137,28 @@ def _split_plain_caption(value: str, limit: int = 1024) -> list[str]:
 
 async def _resolve_image_mode(chat_id: int) -> str:
     if _image_mode_resolver is None:
-        return "photo"
+        return "document"
     try:
         mode = await _image_mode_resolver(chat_id)
     except Exception:
-        return "photo"
-    return mode if mode in {"photo", "document"} else "photo"
+        return "document"
+    return mode if mode in {"photo", "document"} else "document"
+
+
+async def _send_text(
+    message: Message,
+    text: str,
+    reply_markup: Any | None,
+) -> None:
+    if len(text) <= 4096:
+        await message.answer(text, reply_markup=reply_markup)
+        return
+    chunks = _split_plain_caption(text)
+    for index, chunk in enumerate(chunks):
+        await message.answer(
+            chunk,
+            reply_markup=reply_markup if index == len(chunks) - 1 else None,
+        )
 
 
 async def send_scene(
@@ -139,18 +167,13 @@ async def send_scene(
     caption: str,
     reply_markup: Any | None = None,
 ) -> None:
-    """Отправляет крупную сцену; document сохраняет файл без сжатия Telegram."""
+    """Отправляет PNG как документ без потерь либо как быстрое Telegram-фото."""
     path = scene_path(scene)
     mode = await _resolve_image_mode(message.chat.id)
 
     if mode == "document":
-        chunks = _split_plain_caption(caption, limit=1024)
-        for index, chunk in enumerate(chunks):
-            await message.answer_document(
-                FSInputFile(path, filename=path.name),
-                caption=chunk,
-                reply_markup=reply_markup if index == len(chunks) - 1 else None,
-            )
+        await message.answer_document(FSInputFile(path, filename=path.name))
+        await _send_text(message, caption, reply_markup)
         return
 
     if len(caption) <= 1024:
@@ -161,10 +184,5 @@ async def send_scene(
         )
         return
 
-    chunks = _split_plain_caption(caption)
-    for index, chunk in enumerate(chunks):
-        await message.answer_photo(
-            FSInputFile(path, filename=path.name),
-            caption=chunk,
-            reply_markup=reply_markup if index == len(chunks) - 1 else None,
-        )
+    await message.answer_photo(FSInputFile(path, filename=path.name))
+    await _send_text(message, caption, reply_markup)
