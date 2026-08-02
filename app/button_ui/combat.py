@@ -70,7 +70,7 @@ def build_combat_router(database: Database, store: SessionStore) -> Router:
             else:
                 lines.append(f"🛡️ {esc(event['enemy'])}: промах")
         text = (
-            f"\n\n<b>Ход врагов</b>\n" + "\n".join(lines)
+            "\n\n<b>Ход врагов</b>\n" + "\n".join(lines)
             + f"\n\n❤️ {esc(character['name'])}: {character['current_hp']}/{character['max_hp']} HP"
         )
         if shield_bonus:
