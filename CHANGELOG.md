@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.4.0 — Tactical Items
+
+### Added
+
+- `/tactics` command available during an active combat;
+- Shield Scroll effect that grants +2 armor class for two enemy phases;
+- Phoenix Feather ward that automatically revives the active hero with half maximum HP;
+- persistent tactical effects stored inside the existing combat state;
+- atomic item activation that consumes inventory and updates combat in one SQLite transaction;
+- duplicate-activation protection for repeated or concurrent button presses;
+- `combat_item_history` audit table;
+- combat status display for active tactical effects;
+- tests for persistence, duplicate protection, shield duration, phoenix recovery, and missing items.
+
+### Compatibility
+
+- Shield Scrolls and Phoenix Feathers crafted in v4.3 work immediately;
+- existing combats and inventories remain compatible;
+- no new environment variables are required.
+
 ## 4.3.0 — Forge & Salvage
 
 ### Added
