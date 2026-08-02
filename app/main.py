@@ -23,6 +23,7 @@ COMMANDS = [
     BotCommand(command="forge", description="Открыть кузницу и разбор предметов"),
     BotCommand(command="tactics", description="Использовать боевые предметы"),
     BotCommand(command="support", description="Вылечить союзника в бою"),
+    BotCommand(command="rewards", description="Показать награды за победы"),
     BotCommand(command="status", description="Проверить версию и состояние данных"),
 ]
 
