@@ -16,11 +16,13 @@ from app.button_ui.journal import build_journal_router
 from app.button_ui.keyboards import MAIN_MENU
 from app.button_ui.media import configure_image_mode_resolver, send_scene
 from app.button_ui.progression import build_progression_router
+from app.button_ui.support import build_support_router
 from app.button_ui.tactical import build_tactical_router
 from app.daily_rewards import DailyRewardStore
 from app.database import Database
 from app.dungeon_store import DungeonStore
 from app.maintenance import check_database, format_bytes
+from app.party_support import PartySupportStore
 from app.session import SessionStore
 from app.tactical_items import TacticalItemStore
 
@@ -30,6 +32,7 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
     dungeon_store = DungeonStore(database.path)
     daily_store = DailyRewardStore(database.path)
     tactical_store = TacticalItemStore(database.path)
+    support_store = PartySupportStore(database.path)
     configure_image_mode_resolver(dungeon_store.get_image_mode)
 
     @router.message(CommandStart())
@@ -39,8 +42,8 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             message,
             "start",
             "🐉 <b>Врата подземелья открыты.</b>\n\n"
-            "Теперь доступны партийные боевые раунды, экспедиции по подземельям, боссы, "
-            "ежедневные награды, кузница, тактические предметы и настройки изображений. "
+            "Теперь доступны партийные боевые раунды, полевая поддержка союзников, "
+            "экспедиции по подземельям, ежедневные награды, кузница и тактические предметы. "
             "Всё управление — кнопками и командами.",
             MAIN_MENU,
         )
@@ -54,6 +57,8 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
             "Начни кампанию и создай героя. Каждый игрок может вступить в «👥 Партию» и получить "
             "собственного персонажа. В обычном бою каждый живой участник действует один раз за раунд, "
             "после чего начинается общая фаза врагов. "
+            "Команда /support позволяет потратить ход и лечебное зелье на любого союзника, "
+            "включая героя без сознания. "
             "Команда /daily открывает ежедневный сундук партии. "
             "Команда /forge позволяет создавать расходники и разбирать лишнюю добычу в золото. "
             "Во время боя /tactics активирует Свиток щита или Перо феникса. "
@@ -77,6 +82,7 @@ def build_button_router(database: Database, store: SessionStore) -> Router:
     router.include_router(build_daily_router(store, daily_store))
     router.include_router(build_forge_router(database, store))
     router.include_router(build_tactical_router(database, store, tactical_store))
+    router.include_router(build_support_router(database, store, support_store))
     router.include_router(build_progression_router(database, store))
     # Этот роутер стоит перед старым приключенческим модулем и заменяет прежнюю
     # одноразовую генерацию квестов полноценной системой активных контрактов.
