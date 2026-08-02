@@ -465,12 +465,15 @@ def _spell(
         )
         equipment = equipment_bonuses(character)
         try:
-            result = cast_spell(
-                state,
-                spell,
-                modifier,
-                damage_bonus=equipment["spell_damage"],
-            )
+            if equipment["spell_damage"]:
+                result = cast_spell(
+                    state,
+                    spell,
+                    modifier,
+                    damage_bonus=equipment["spell_damage"],
+                )
+            else:
+                result = cast_spell(state, spell, modifier)
         except ValueError as error:
             connection.rollback()
             return _denied(str(error), state)
